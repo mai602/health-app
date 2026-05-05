@@ -1427,10 +1427,22 @@
     return 5;
   }
 
+  // ===== セキュリティ・データ保護のためのヘルパー =====
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function safeParse(raw, fallback) {
+    if (raw == null) return fallback;
+    try { return JSON.parse(raw); } catch { return fallback; }
+  }
+
   // ===== 状態管理 =====
-  let records = JSON.parse(localStorage.getItem('healthRecords') || '[]');
-  let userFoods = JSON.parse(localStorage.getItem('userFoods') || '{}');
-  let weightGoal = JSON.parse(localStorage.getItem('weightGoal') || 'null'); // {currentWeight, targetWeight}
+  let records = safeParse(localStorage.getItem('healthRecords'), []);
+  let userFoods = safeParse(localStorage.getItem('userFoods'), {});
+  let weightGoal = safeParse(localStorage.getItem('weightGoal'), null); // {currentWeight, targetWeight}
   let selectedMood = null;
   let selectedMealType = guessMealType();
   let currentMealItems = []; // 1食に追加中の食材リスト
@@ -1920,12 +1932,12 @@
       return;
     }
     suggestionsBox.innerHTML = matches.map(m => `
-      <div class="suggestion-item" data-name="${m.name}" data-cal="${m.calorie}">
+      <div class="suggestion-item" data-name="${escapeHtml(m.name)}" data-cal="${Number(m.calorie)}">
         <div class="suggestion-text">
-          <div>${m.name}${m.isUser ? '<span class="suggestion-saved">★ 保存済み</span>' : ''}</div>
-          ${m.isEstimate ? `<div class="suggestion-note">推測値 (${m.basedOn} を参考)</div>` : ''}
+          <div>${escapeHtml(m.name)}${m.isUser ? '<span class="suggestion-saved">★ 保存済み</span>' : ''}</div>
+          ${m.isEstimate ? `<div class="suggestion-note">推測値 (${escapeHtml(m.basedOn)} を参考)</div>` : ''}
         </div>
-        <span class="suggestion-cal ${m.isEstimate ? 'estimate' : ''}">${m.isEstimate ? '約 ' : ''}${m.calorie} kcal</span>
+        <span class="suggestion-cal ${m.isEstimate ? 'estimate' : ''}">${m.isEstimate ? '約 ' : ''}${Number(m.calorie)} kcal</span>
       </div>
     `).join('');
     suggestionsBox.style.display = 'block';
@@ -1956,9 +1968,9 @@
     const total = currentMealItems.reduce((s, i) => s + (i.calorie || 0), 0);
     let html = currentMealItems.map((item, idx) => `
       <div class="meal-item">
-        <span class="meal-item-name">${item.name}</span>
-        <span class="meal-item-cal">${item.calorie ? item.calorie + ' kcal' : '—'}</span>
-        <button class="meal-item-remove" onclick="removeMealItem(${idx})">×</button>
+        <span class="meal-item-name">${escapeHtml(item.name)}</span>
+        <span class="meal-item-cal">${item.calorie ? Number(item.calorie) + ' kcal' : '—'}</span>
+        <button class="meal-item-remove" data-idx="${idx}">×</button>
       </div>
     `).join('');
     html += `<div class="meal-total"><span>合計</span><span>${total} kcal</span></div>`;
@@ -1969,6 +1981,12 @@
     currentMealItems.splice(idx, 1);
     renderCurrentMeal();
   }
+
+  document.getElementById('currentMealItems').addEventListener('click', (e) => {
+    const btn = e.target.closest('.meal-item-remove');
+    if (!btn) return;
+    removeMealItem(Number(btn.dataset.idx));
+  });
 
   // ===== 食事: メニューに追加 =====
   document.getElementById('addMealItem').addEventListener('click', () => {
@@ -2198,14 +2216,14 @@
         if (r.items && r.items.length > 0) {
           // 新形式: 複数アイテム
           const itemsHtml = r.items.map(it =>
-            `<li>${it.name}${it.calorie ? ` (${it.calorie} kcal)` : ''}</li>`
+            `<li>${escapeHtml(it.name)}${it.calorie ? ` (${Number(it.calorie)} kcal)` : ''}</li>`
           ).join('');
-          const totalText = r.totalCalorie ? ` 合計 ${r.totalCalorie} kcal` : '';
+          const totalText = r.totalCalorie ? ` 合計 ${Number(r.totalCalorie)} kcal` : '';
           mainText = `${timeBadge}<strong>${r.items.length}品</strong>${totalText}<ul class="meal-items-list">${itemsHtml}</ul>`;
         } else {
           // 旧形式: 単一アイテム
-          const calText = r.calorie ? ` (${r.calorie} kcal)` : '';
-          mainText = `${timeBadge}${r.name}${calText}`;
+          const calText = r.calorie ? ` (${Number(r.calorie)} kcal)` : '';
+          mainText = `${timeBadge}${escapeHtml(r.name)}${calText}`;
         }
       } else if (r.type === 'weight') {
         typeLabel = '<span class="record-type weight">体重</span>';
@@ -2235,7 +2253,7 @@
             <div class="record-main">${mainText}</div>
             <div class="record-date">${formatDate(r.date)}</div>
           </div>
-          <button class="delete-btn" onclick="deleteRecord(${r.id})">×</button>
+          <button class="delete-btn" data-id="${r.id}">×</button>
         </div>
       `;
     }).join('');
@@ -2252,6 +2270,12 @@
     renderRecommendation();
     renderCorrelations();
   }
+
+  document.getElementById('recordsList').addEventListener('click', (e) => {
+    const btn = e.target.closest('.delete-btn');
+    if (!btn) return;
+    deleteRecord(Number(btn.dataset.id));
+  });
 
   // 日付セレクタを変更したら、その日の栄養計算と提案を更新
   recordDateInput.addEventListener('change', () => {
