@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>健康記録</title>
 <style>
   * {
@@ -1440,8 +1441,15 @@
   }
 
   // ===== 状態管理 =====
+  const RESERVED_KEYS = ['__proto__', 'constructor', 'prototype'];
   let records = safeParse(localStorage.getItem('healthRecords'), []);
+  if (!Array.isArray(records)) records = [];
   let userFoods = safeParse(localStorage.getItem('userFoods'), {});
+  if (!userFoods || typeof userFoods !== 'object' || Array.isArray(userFoods)) {
+    userFoods = {};
+  } else {
+    for (const k of RESERVED_KEYS) delete userFoods[k];
+  }
   let weightGoal = safeParse(localStorage.getItem('weightGoal'), null); // {currentWeight, targetWeight}
   let selectedMood = null;
   let selectedMealType = guessMealType();
@@ -1452,6 +1460,7 @@
   function saveUserFood(name, calorie) {
     const trimmed = name.trim();
     if (!trimmed || !calorie) return;
+    if (RESERVED_KEYS.includes(trimmed)) return;
     userFoods[trimmed] = Number(calorie);
     localStorage.setItem('userFoods', JSON.stringify(userFoods));
   }
@@ -1891,7 +1900,8 @@
     if (!dateStr || dateStr === todayString()) {
       return new Date().toISOString();
     }
-    return new Date(dateStr + 'T12:00:00').toISOString();
+    const d = new Date(dateStr + 'T12:00:00');
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
 
   // ===== タブ切り替え =====
@@ -2227,23 +2237,27 @@
         }
       } else if (r.type === 'weight') {
         typeLabel = '<span class="record-type weight">体重</span>';
-        mainText = `${r.value} kg`;
+        mainText = `${Number(r.value)} kg`;
       } else if (r.type === 'mood') {
         typeLabel = '<span class="record-type mood">気分</span>';
-        mainText = moodEmojis[r.level];
+        const moodLevel = Number(r.level);
+        mainText = (moodLevel >= 1 && moodLevel <= 5) ? moodEmojis[moodLevel] : '';
       } else if (r.type === 'exercise') {
         typeLabel = '<span class="record-type exercise">運動</span>';
         const ex = exerciseTypes[r.exerciseType];
-        const exLabel = ex ? ex.label : r.exerciseType;
-        mainText = `${exLabel} ${r.duration}分 <span style="color:#1565c0;font-weight:600;">-${r.caloriesBurned} kcal</span>`;
+        const exLabel = ex ? ex.label : escapeHtml(r.exerciseType);
+        mainText = `${exLabel} ${Number(r.duration)}分 <span style="color:#1565c0;font-weight:600;">-${Number(r.caloriesBurned)} kcal</span>`;
       } else if (r.type === 'sleep') {
         typeLabel = '<span class="record-type sleep">睡眠</span>';
-        mainText = `${r.hours} 時間`;
+        mainText = `${Number(r.hours)} 時間`;
       } else if (r.type === 'nutrition') {
         typeLabel = '<span class="record-type nutrition">栄養</span>';
         mainText = '<div class="nutrition-detail">' + nutrients
           .filter(n => r.values[n.key])
-          .map(n => `${n.label}: ${'★'.repeat(r.values[n.key])}${'☆'.repeat(5 - r.values[n.key])}`)
+          .map(n => {
+            const stars = Math.max(0, Math.min(5, Number(r.values[n.key]) || 0));
+            return `${escapeHtml(n.label)}: ${'★'.repeat(stars)}${'☆'.repeat(5 - stars)}`;
+          })
           .join('<br>') + '</div>';
       }
       return `
